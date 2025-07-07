@@ -1,0 +1,154 @@
+# Posizione frontale distante prima dell'approccio al pantografo
+posizione_panto_finale = posx(984.29, -105.51, 51.93, 91.71, 89.60, -179.62)  
+posizione_panto = trans(posizione_panto_finale, [0,0,-5,0,0,0], DR_TOOL)
+posizione_panto_rilascio = trans(posizione_panto_finale, [-1,0,-20,0,0,0], DR_TOOL)
+
+# Definisco un offset di sicurezza per l'approccio
+delta_pre_panto = [0, -50, 0, 0, 0, 0]
+
+# Posizione frontale di sicurezza prima del controllo in forza per aggancio pantografo
+posizione_sicurezza_pre_panto = trans(posizione_panto, delta_pre_panto, DR_BASE)
+    
+    
+def pantografo():
+
+    # Setting delle variabili di velocità
+    translation_speed = 100
+    translation_acc = 100
+    translation_slow_speed = 100
+    translation_slow_acc = 100
+    
+    # Initialized Storage class to pick and release the grippers
+    storage = Storage()
+    
+    # Set delle velocità e accelerazione cartesiana
+    set_accx(50,20)
+    set_velx(50,20)
+    
+    # Set della velocità e accelerazione in giunti
+    set_accj(50)
+    set_velj(50)
+    
+    # Set del peso e del TCP
+    set_tcp("quick_changer")
+    set_tool("quick_changer_weight")
+    
+    move_home(DR_HOME_TARGET_USER)
+    
+    # Creo un oggetto dalla 'class' per comunicare con il la testa del manipolatore
+    control = ManipulatorController()
+    
+    # Muovo il Doosan di fronte al pantografo
+    movejx(posizione_sicurezza_pre_panto, sol=7)
+    
+    storage.pick_pantograph() # Preleva il pantografo e ne setta il peso
+    
+    # Definisco la posizione effettiva
+    posizione_effettiva_panto = get_current_posx()[0]
+    
+    
+    # Definisco una serie di posizioni per liberare il pantografo dalla gabbia utensili
+    posizione_FineCorsa_PortaPanto_bassa = trans(posizione_effettiva_panto, [0.0, -125.00, 0.0, 0.0, 0.0, 0.0], DR_BASE)
+    posizione_FineCorsa_PortaPanto_alta = trans(posizione_FineCorsa_PortaPanto_bassa, [0.0, 0.0, 190.0, 0.0, 0.0, 0.0], DR_BASE)
+    posizione_sicurezza_panto_libero = trans(posizione_FineCorsa_PortaPanto_alta, [0.0, -150.0, 0.0, 0.0, 0.0, 0.0], DR_BASE)
+    
+    # Muovo il Doosan e INDEVA solo lungo la coordinata y (ancora dentro alla gabbia utensile)
+    movel(posizione_FineCorsa_PortaPanto_bassa, vel=10, acc=10)
+
+    # Reset dell'altezza del manipolatore all'altezza attuale
+    control.reset_height()
+    tp_log("reset") # Print di debug a schermo.
+    starting_pos_manipulator = 0
+    # Set target vel for cobot and manipulator when hooked
+    target_vel = 50
+    # Calcolo dell'offset dell'arrivo rispetto alla posizione attuale
+    offset_cobot =  posizione_FineCorsa_PortaPanto_alta[2] - posizione_FineCorsa_PortaPanto_bassa[2]
+    offset_balancer = control.current_man_offset(offset_cobot)
+    tp_log("offset")
+    # Movimento del cobot e del lifter in sincro   
+    control.test_height(height = offset_balancer, vel_cobot = target_vel, pos_cobot = posizione_FineCorsa_PortaPanto_alta, up = True)
+    # Calcolo dell'offset dell'arrivo rispetto alla posizione attuale
+    offset_cobot =  posizione_FineCorsa_PortaPanto_bassa[2] - posizione_FineCorsa_PortaPanto_alta[2]
+    # Sposto il Doosan e INDEVA leggermente indietro per evitare la gabbia di appoggio del pantografo
+    movel(posizione_sicurezza_panto_libero, vel=30, acc=10)
+    # Ruoto il Doosan e INDEVA 
+    posizione_sicurezza_ruotata_panto_libero = trans(posizione_sicurezza_panto_libero, [0,0,0,-90,0,0], DR_BASE)
+    movel(posizione_sicurezza_ruotata_panto_libero, vel=10, acc=10)
+    
+    
+    ################# INIZIO PRESA DEL MOTORE IN BAIA #######################
+    
+    # Calcolo e muovo in posizione centrale nella guida lineare
+    distance_to_middle = stg.get_mm_to_move()
+    movel(posx(0,0,distance_to_middle,0,0,0), mod = DR_MV_MOD_REL)
+    
+    
+
+    movel(posizione_sicurezza_panto_libero, vel = 30, acc = 10)
+    
+    ## Sposto il Doosan e INDEVA leggermente indietro per evitare la gabbia di appoggio del pantografo
+    #movel(posizione_sicurezza_ruotata_panto_libero, vel=30, acc=10)
+    #
+    ## Sposto il Doosan e INDEVA leggermente indietro per evitare la gabbia di appoggio del pantografo
+    #movel(posizione_sicurezza_panto_libero, vel=30, acc=10)
+    #
+    ## Calcolo e muovo in posizione centrale nella guida lineare
+    #distance_to_middle = stg.get_mm_to_move()
+    #movel(posx(0,0,distance_to_middle,0,0,0), mod = DR_MV_MOD_REL)
+    
+    ## Definisco una posizione di sicurezza fronte stazione utensili
+    #posizione_rientro_panto = posizione_sicurezza_panto_libero
+    #posizione_rientro_panto[2] = posizione_intermedia[2]
+    
+    # Definisco una variabile di posizione per definire il delta di spostamento necessario
+    posizione_attuale = get_current_posx()[0]
+    wait(1)
+    
+    # Aggiorno la z della nuova posizione
+    posizione_FineCorsa_PortaPanto_alta[2] = posizione_attuale[2]
+
+    # Muovo il Doosan e INDEVA verso la posizione sopra la gabbia utensili
+    movel(posizione_FineCorsa_PortaPanto_alta, vel=30, acc=10)
+    
+    # Calcolo e muovo in posizione centrale nella guida lineare
+    distance_to_middle = stg.get_mm_to_move()
+    movel(posx(0,0,distance_to_middle,0,0,0), mod = DR_MV_MOD_REL)
+    
+    ## Attivo il controllo bit necessario per utilizzare il manipolatore
+    #control.set_control()
+    #tp_log("control") # Print di debug a schermo.
+    ## Reset dell'altezza del manipolatore all'altezza attuale
+    #control.reset_height()
+    #tp_log("reset") # Print di debug a schermo.
+    #starting_pos_manipulator = 0
+    ## Set target vel for cobot and manipulator when hooked
+    #target_vel = 50
+    # Calcolo dell'offset dell'arrivo rispetto alla posizione attuale
+    offset_cobot =  posizione_FineCorsa_PortaPanto_bassa[2] - posizione_FineCorsa_PortaPanto_alta[2]
+    offset_balancer = control.current_man_offset(offset_cobot - 3)
+    tp_log("offset")
+    wait(1)
+    # Movimento del cobot e del lifter in sincro
+    control.test_height(height = offset_balancer, vel_cobot = target_vel, pos_cobot = posizione_FineCorsa_PortaPanto_bassa, up = False)
+    wait(1)
+    
+    ## Muovo il Doosan e INDEVA verso la posizione dentro la gabbia utensili prima del controllo in forza, mi adatto a tutte le cordinate mantendo la distanza in Y
+    #posizione_effettiva_panto[1] = posizione_panto[1]
+    #movel(posizione_panto_rilascio, vel=10, acc=10)
+    
+    storage.place_pantograph()
+    # Imposto l'end effector con il peso del cambio rapido
+    set_tool("quick_changer_weight")
+    
+
+    
+    # Muovo il Doosan nella posizione di sicurezza pre panto
+    movel(posizione_sicurezza_pre_panto, vel = 50, acc=50)
+    
+    # Muovo il Doosan in posizione di home
+    move_home(DR_HOME_TARGET_USER)
+    
+    control.reset_and_stop()
+    
+    
+
