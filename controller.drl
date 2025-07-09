@@ -2,6 +2,12 @@ from DRCF import *
 from threading import Lock # per comunicare più rapidamente circa 20ms più latenza. Scambia dati in modo continuo e evito la race condition.
 import time
 
+def print_log(msg):
+    tp_log(msg)
+
+    
+def print_popup(msg):
+    tp_popup(msg, DR_PM_MESSAGE)
 
 class Storage:    
     
@@ -32,8 +38,8 @@ class Storage:
         self.DI_PISTON_LOCK_SHUNK = "DI_moxa_3"
         
         # Pos pantograph
-        self.pre_grip_pantograph = posx(985.14, -113.00, 54.00, 91.5, 89.77, -179.00)
-        self.pre_ascent_pantograph = trans(self.pre_grip_pantograph, [0, -127.69, 0, 0, 0, 0], DR_BASE) 
+        self.pre_grip_pantograph = posx(984.9, -118.57, 53.03, 91.99, 89.72, -179.56) # posx(985.14, -113.00, 54.00, 91.5, 89.77, -179.00) posx(984.29, -113.51, 51.93, 91.71, 89.60, -179.62)
+        self.pre_ascent_pantograph = trans(self.pre_grip_pantograph, [0, -100, 0, 0, 0, 0], DR_BASE) 
         self.pre_release_pantograph = trans(self.pre_grip_pantograph, [0, 0, 3, 0, 0, 0], DR_BASE)
         self.pre_descent_pantograph = trans(self.pre_ascent_pantograph, [0, 0, 217.46, 0, 0, 0], DR_BASE) 
         self.pre_obstruction_trestle = trans(self.pre_descent_pantograph, [0,trestle_offset,0,0,0,0], DR_BASE)
@@ -51,7 +57,7 @@ class Storage:
         
         #Pos Shunk EGU50 Gripper
         self.pos_pick_shunk = posx(653.32, -25.74, 36.1, 178.47, 179.82, 178.88)
-        self.pre_pick_shunk = trans(pos_pick_shunk, [0,0,-100,0,0,0], DR_TOOL)
+        self.pre_pick_shunk = trans(self.pos_pick_shunk, [0,0,-100,0,0,0], DR_TOOL)
         self.to_pick_shunk = trans(self.pos_pick_shunk, [0,0,-200,0,0,0], DR_TOOL)
         self.to_pick_shunk_joint = ikin(self.to_pick_shunk, 7, DR_BASE)
         self.place_shunk = posx(653.24, -25.09, 34.36, 112.35, 179.94, 112.82)
@@ -124,7 +130,7 @@ class Storage:
         set_tcp("quick_changer")
         # Move in joint space in front of the vacuum gripper
         movel(self.pre_place_shunk)
-        tp_log(str(get_current_posx()))
+        print_log(str(get_current_posx()))
         movel(self.pre_force_shunk)
         wait(1)
         # Start force control z base
@@ -216,40 +222,40 @@ class Storage:
         set_digital_output(self.DO_SHUNK_STORAGE, ON)
         wait(1)
         if get_modbus_input(self.DI_PISTON_LOCK_SHUNK):
-            tp_popup("Error Unlocking the vacuum, I will close the program", DR_PM_MESSAGE)
+            print_popup("Error Unlocking the vacuum, I will close the program", DR_PM_MESSAGE)
             exit()
         else:
-            tp_log("Vacuum gripper correctly released")
+            print_log("Vacuum gripper correctly released")
     
             
     def close_shunk_block(self):
         set_digital_output(self.DO_SHUNK_STORAGE, OFF)
         wait(1)
         if not get_modbus_input(self.DI_PISTON_LOCK_SHUNK):
-            tp_popup("Error Locking the vacuum, I will close the program", DR_PM_MESSAGE)
+            print_popup("Error Locking the vacuum, I will close the program")
             exit()
         else:
-            tp_log("Gripper locked cooretly into the storage")
+            print_log("Gripper locked cooretly into the storage")
             
             
     def open_vacuum_block(self):
         set_digital_output(self.DO_VACUUM_STORAGE, ON)
         wait(1)
         if get_modbus_input(self.DI_PISTON_LOCK_VACUUM):
-            tp_popup("Error Unlocking the vacuum, I will close the program", DR_PM_MESSAGE)
+            print_popup("Error Unlocking the vacuum, I will close the program")
             exit()
         else:
-            tp_log("Vacuum gripper correctly released")
+            print_log("Vacuum gripper correctly released")
     
             
     def close_vacuum_block(self):
         set_digital_output(self.DO_VACUUM_STORAGE, OFF)
         wait(1)
         if not get_modbus_input(self.DI_PISTON_LOCK_VACUUM):
-            tp_popup("Error Locking the vacuum, I will close the program", DR_PM_MESSAGE)
+            print_popup("Error Locking the vacuum, I will close the program")
             exit()
         else:
-            tp_log("Gripper locked cooretly into the storage")
+            print_log("Gripper locked cooretly into the storage")
             
             
     def open_panto_block(self):
@@ -257,7 +263,7 @@ class Storage:
         wait(1)
         # Check if hocked if not relese the grip and the force and return tu the approch position
         if get_modbus_input(self.DI_PISTON_LOCK_PANTOGRAPH):
-            tp_popup("Error in unlocking the storage for the pantograph")
+            print_popup("Error in unlocking the storage for the pantograph")
             exit()
         
             
@@ -266,7 +272,7 @@ class Storage:
         wait(1)
         # Check if hocked if not relese the grip and the force and return tu the approch position
         if not get_modbus_input(self.DI_PISTON_LOCK_PANTOGRAPH):
-            tp_popup("Error in locking the storage for the pantograph")
+            print_popup("Error in locking the storage for the pantograph")
             exit()
     
             
@@ -279,8 +285,8 @@ class Storage:
             self.release_quick_changer()
             release_force()
             #movel(self.pre_ascent_pantograph)        
-            tp_popup("Error in hocking the quick changer", DR_PM_MESSAGE)
-        tp_log("hoocked to quick changer") 
+            print_popup("Error in hocking the quick changer")
+        print_log("hoocked to quick changer") 
     
         
     def release_quick_changer(self):
@@ -291,8 +297,8 @@ class Storage:
             self.grip_quick_changer()
             release_force()
             #movel(self.pre_ascent_pantograph)        
-            tp_popup("error in releasing the quick changer", DR_PM_MESSAGE)
-        tp_log("unhoocked")     
+            print_popup("error in releasing the quick changer")
+        print_log("unhoocked")     
         
         
     def force_task(self):
@@ -320,8 +326,8 @@ class Storage:
         # Start the force task to as near as possible to the slave side of the quick changer
         self.force_task()
         # Print the arrival position
-        tp_log("arrived")    
-        tp_log(str(get_current_posx()[0]))
+        print_log("arrived")    
+        print_log(str(get_current_posx()[0]))
         self.grip_quick_changer()
         # Once gripped to the quick changer try unlocking the storage block
         self.open_panto_block()
@@ -345,8 +351,8 @@ class Storage:
         # Start the force task to as near as possible to the slave side of the quick changer
         self.force_task()
         # Print the arrival position
-        tp_log("arrived")    
-        tp_log(str(get_current_posx()[0]))
+        print_log("arrived")    
+        print_log(str(get_current_posx()[0]))
         self.close_panto_block()
         self.release_quick_changer()
         release_force()
@@ -360,10 +366,10 @@ class Storage:
     
 class ManipulatorController:
     def __init__(self):
-        # Create an lock to avoid race condition
         self.TCP_PANTOGRAPH = [500,0,50,30,90,0]
+        # Create a lock to avoid race condition
         self.lock = Lock()
-        self.LENGHT_LABYRINTH = 20
+        self.LENGTH_LABYRINTH = 20 # Length of the gear to activate the manual gripper taht is the pantograph
         self.MARGIN = 7
         self.T_WAIT = 0.05
         self.LONG_WAIT = 1
@@ -372,11 +378,10 @@ class ManipulatorController:
         self.CONVERSION_FACTOR = 0.00030231
         self.N_ROPE = 2
         self.MAX_NUMB_WORD = 65535
-        self.home_j = posj(-26.58, -58.41, -97.48, -14.37, 67.24, 6.57)
-        self.home_x = posx(-1192.46, 517.71, 667.38, 155.19, 88.31, 151.1) # To change with cartesian home to do the height comparison for manipulator starting pos
+        self.MIN_VOLTAGE = 2.30 # Correspond to the maximum height 116.33
+        self.MAX_VOLTAGE = 7.22
         
-        
-        # Data for message to send
+        # Dictionary for control word to send
         self.control_dict = {
             "bit_0_control": 0,
             "bit_1_empty": 1,
@@ -387,6 +392,7 @@ class ManipulatorController:
             "bit_6_reset": 6,
             "bit_7_hooked": 7
         }
+        # Boolean values control word to send
         self.status_send = {
             "bit_0_control": True,
             "bit_1_empty": False,
@@ -402,7 +408,7 @@ class ManipulatorController:
         self.height = 0
         self.speed_limit = 0
 
-        # Data received
+        # Boolean values for the status received from the lifter
         self.status_recv = {
             "bit_0_status_control": False,
             "bit_1_resetted": False,
@@ -446,7 +452,8 @@ class ManipulatorController:
         else:
             return False
 
-        
+
+    # Function tp convert the bit data received from the manipulator to the data used in the main program    
     def convert_recv_data(self, w_actual_vel, w_target_pos, w_actual_pos, w_feedback):
         self.actual_vel = modbus_unsigned_to_signed(w_actual_vel)
         self.actual_pos = modbus_unsigned_to_signed(w_actual_pos)
@@ -469,12 +476,12 @@ class ManipulatorController:
         try:
             self.recv_counter = int(bit_feedback[-8:-6], 2)
         except ValueError:
-            tp_popup("errore counter non valido", DR_PM_MESSAGE)
+            print_popup("errore counter non valido")
             self.reset_and_stop()
         try:
             self.estimated_weight = int(bit_feedback[:8], 2)
         except ValueError:
-            tp_log("no weight returned")
+            print_log("no weight returned")
 
             
     def modbus_comm(self):
@@ -485,10 +492,10 @@ class ManipulatorController:
                 self.covert_send_data()
                 try:
                     if set_modbus_output_multi("out", [self.speed_limit, self.height, self.send_counter ,self.word_int_bool]):
-                        tp_popup("Impossibile settare", DR_PM_MESSAGE)
+                        print_popup("Impossibile settare")
                         exit()
                 except:
-                    tp_popup("Impossibile comunicare in modbus", DR_PM_MESSAGE)
+                    print_popup("Impossibile comunicare in modbus")
                     exit()
     
                 if self.send_counter == 3:
@@ -499,10 +506,10 @@ class ManipulatorController:
         try:
             res, var_list = get_modbus_inputs_list(iobus_list=["in_0", "in_1", "in_2", "in_3"])
             if res < 4:
-                tp_popup("Ho ricevuto solo {}".format(res), DR_PM_MESSAGE)
+                print_popup("Ho ricevuto solo {}".format(res))
                 exit()
         except:
-            tp_popup("Impossibile leggere i registri in modbus", DR_PM_MESSAGE)
+            print_popup("Impossibile leggere i registri in modbus")
             exit()
         
         word_actual_vel, word_target_height, word_actual_height, word_feedback = var_list
@@ -518,7 +525,7 @@ class ManipulatorController:
         # Create an empty byte mast to change based on the dictionary set in the main program
         
         for bit_name, bit_index in self.control_dict.items():
-            if self.status[bit_name]:
+            if self.status_send[bit_name]:
                 byte_bool = self.set_bit(byte_bool, bit_index)
             else:
                 byte_bool = self.reset_bit(byte_bool, bit_index)
@@ -548,9 +555,9 @@ class ManipulatorController:
     def reset_param(self):
         try:
             if set_modbus_output_multi("out", [0, 0, 0, 0]):
-                tp_popup("Impossibile settare", DR_PM_MESSAGE)
+                print_popup("Impossibile settare")
         except:
-            tp_popup("Impossibile comunicare in modbus", DR_PM_MESSAGE)
+            print_popup("Impossibile comunicare in modbus")
             exit()
         
         
@@ -559,19 +566,19 @@ class ManipulatorController:
         with self.lock:
             self.status_send["bit_0_control"] = True
         while True:
-            tp_log("I'm checking for control feedback")
+            print_log("I'm checking for control feedback")
             with self.lock:
                 if self.status_recv["bit_0_status_control"]:
                     break
             time.sleep(self.T_WAIT)
     
     def reset_and_stop(self):
-        tp_log("I will stop the thread") 
+        print_log("I will stop the thread") 
         try:
             thread_stop(self.modbus_thread)
         except:
             thread_stop(self.modbus_thread)
-        tp_log("Thread stopped")
+        print_log("Thread stopped")
         self.reset_param()
         time.sleep(self.LONG_WAIT)
         exit()
@@ -587,13 +594,13 @@ class ManipulatorController:
             # Wait for JUST_RESETTED status before continuing and avoid race condition with the lock
             start = time.time()
             while True:
-                tp_log("I'm checking for JUST RESET feedback {0}".format(self.status_recv["bit_4_just_resetted"]))
+                print_log("I'm checking for JUST RESET feedback {0}".format(self.status_recv["bit_4_just_resetted"]))
                 with self.lock:
                     just_reset_status = self.status_recv["bit_4_just_resetted"]
                 if just_reset_status:
                     break
                 elif time.time() - start > 10 :
-                    tp_log("No reset received")
+                    print_log("No reset received")
                     self.reset_and_stop()
                         
                 time.sleep(self.T_WAIT)
@@ -602,22 +609,22 @@ class ManipulatorController:
             start = time.time()
             # Wait for reset status before continuing and avoid race condition with the lock
             while True:
-                tp_log("I'm checking for reset feedback {0}".format(self.status_recv["bit_1_resetted"]))
+                print_log("I'm checking for reset feedback {0}".format(self.status_recv["bit_1_resetted"]))
                 with self.lock:
                     resetted_status = self.status_recv["bit_1_resetted"]
                 if resetted_status:
                     break
                 elif time.time() - start > 10 :
-                    tp_log("No reset received")
+                    print_log("No reset received")
                     self.reset_and_stop()                        
                 time.sleep(self.T_WAIT)                
         # Remove the reset output
         with self.lock:
-            tp_log("ho messo il bit di reset a 0")
+            print_log("ho messo il bit di reset a 0")
             self.status_send["bit_6_reset"] = False
             
             
-    def test_height(self, height, vel_cobot, pos_cobot, up = False):
+    def move_sync(self, height, vel_cobot, pos_cobot, up = False):
         with self.lock:
             target = height * self.N_ROPE # Double rope manipulator need to double the paramenter                          
             self.height = target 
@@ -640,13 +647,13 @@ class ManipulatorController:
                 status_vel = self.actual_vel
             time.sleep(self.T_WAIT)
         #if status_vel != 0: #and (self.target_pos == self.height): # Check that the manipulator start moving and the target pos correspond to the one setted
-            #tp_log("Vel = {0} and t_pos = {1}".format(self.actual_vel, self.height))
+            #print_log("Vel = {0} and t_pos = {1}".format(self.actual_vel, self.height))
             #
         #else:
-            #tp_log("Wrong Vel = {0} and t_pos = {1}".format(self.actual_vel, self.height))
-            #tp_log("Reset and close the program")
+            #print_log("Wrong Vel = {0} and t_pos = {1}".format(self.actual_vel, self.height))
+            #print_log("Reset and close the program")
             #self.reset_and_stop()
-        # If the vel of the manipulator is 0 or is the vel is 0 or the there is an error stop the cobot
+        # If the vel of the manipulator is 0 or the there is an error stop the cobot
         while True:
             with self.lock:
                 vel_status = self.actual_vel            
@@ -655,35 +662,40 @@ class ManipulatorController:
                 error_from_manipulator = self.status_recv["bit_3_error_from_man"]
                 pos_manipulator = self.actual_pos
                 target = target
-                tp_log("actual_pos: {0} target: {1}".format(pos_manipulator, target))
-                
-            #if resting:
-                #stop(DR_SSTOP)
-                #tp_log("Stopped due to resting")
-                #tp_log("height: {0}".format(height)
-                #break
+                print_log("actual_pos: {0} target: {1}".format(pos_manipulator, target))
+            pos_linear_guide = round(get_analog_input(ch = 1),2)    
+            if resting:
+                stop(DR_SSTOP)
+                print_log("Stopped due to resting")
+                print_log("height: {0}".format(height))
+                break
             if (pos_manipulator >= (target - self.MARGIN)) and  (pos_manipulator <= (target + self.MARGIN)):
                 stop(DR_SSTOP)
-                tp_log("Stopped due to arriving in position")
-                break                
+                print_log("Stopped due to arriving in position")
+                break
+            elif pos_linear_guide < self.self.MIN_VOLTAGE + 0.40 or pos_linear_guide > self.MAX_VOLTAGE - 0.40:
+                stop(DR_SSTOP)
+                print_log("Stopped due to linear sensor out of range")
+                print_log("height: {0}".format(height))
+                break
             #if vel_status == 0: #  ((target - 2 ) <= self.actual_pos <= (target + 2)) or 
                 #stop(DR_SSTOP)
-                #tp_log("Stopped due to speed == 0")
-                #tp_log("height: {0}".format(height))
+                #print_log("Stopped due to speed == 0")
+                #print_log("height: {0}".format(height))
                 #break
-            elif height < 75:
-                if resting:
-                    stop(DR_SSTOP)
-                    tp_log("Stopped due to resting")
-                    tp_log("height: {0}".format(height))
-                    break
+            # elif height < 75:
+            #     if resting:
+            #         stop(DR_SSTOP)
+            #         print_log("Stopped due to resting")
+            #         print_log("height: {0}".format(height))
+            #         break
             elif wrong_command:
                 stop(DR_SSTOP)
-                tp_log("Stopped due to command error")
+                print_log("Stopped due to command error")
                 self.reset_and_stop()
             elif error_from_manipulator:
                 stop(DR_SSTOP)
-                tp_log("Stopped due to manipulator error")
+                print_log("Stopped due to manipulator error")
                 self.reset_and_stop()
                 
             time.sleep(self.T_WAIT)
@@ -692,17 +704,7 @@ class ManipulatorController:
         mwait(0)
     
         
-    def pos_transf(position):
-        # Function to convert the coordinate from the pantograph's tcp to the one of the robot's flange
-        new_x = position[0] + 500 # TO DO
-        new_y = 50 # TO DO
-        new_ry = 50 # TO DO
-        # TO DO
-        pass
-        
     def current_man_offset(self,target_z):
         # Need to divide by two because the measure is double due to the double rope
         return self.actual_pos / self.N_ROPE + target_z
             
-       
-main()
