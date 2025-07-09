@@ -417,6 +417,15 @@ class ManipulatorController:
             "bit_4_just_resetted": False,
             "bit_5_resting": False
         }
+        # Dictionary for the feedback received from the manipulator
+        self.index_feedback = {
+            "bit_0_status_control": 0,
+            "bit_1_resetted": 1,
+            "bit_2_wrong_command": 2,
+            "bit_3_error_from" : 3,
+            "bit_4_just_resetted": 4,
+            "bit_5_resting": 5
+        }
         self.recv_counter = 0
         self.estimated_weight = 0
         self.actual_pos = 0
@@ -460,18 +469,8 @@ class ManipulatorController:
         # Copy manipulator height to reg 128 for codesys to read
         set_output_register_int(0, w_actual_pos)
         self.target_pos = modbus_unsigned_to_signed(w_target_pos)
-        binary_word_feedback = bin(w_feedback)
-        # Take the int converted to a binary string and truncate the 0b to then perform bitwise operation
-        bit_feedback = binary_word_feedback[2:]
-        bit_feedback = bit_feedback.zfill(15)
-        # Take only the first 6 bits for the bitwise operations
-        bool_feedback = bit_feedback[-6:]
-        self.status_recv["bit_0_status_control"] = self.is_bit_set(bool_feedback[5])
-        self.status_recv["bit_1_resetted"] = self.is_bit_set(bool_feedback[4])
-        self.status_recv["bit_2_wrong_command"] = self.is_bit_set(bool_feedback[3])
-        self.status_recv["bit_3_error_from_man"] = self.is_bit_set(bool_feedback[2])
-        self.status_recv["bit_4_just_resetted"] = self.is_bit_set(bool_feedback[1])
-        self.status_recv["bit_5_resting"] = self.is_bit_set(bool_feedback[0])
+        # Convert and then copy into the status dictionary
+        self.status_recv = {name : bool(w_feedback(1 << index)) for name, index in self.index_feedback.items()}
         # Take the last 2 bits for the counter and the estimated weight and then convert them to integers
         try:
             self.recv_counter = int(bit_feedback[-8:-6], 2)
