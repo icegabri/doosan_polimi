@@ -377,7 +377,7 @@ class ManipulatorController:
         self.ONE_METER_TO_MM = 1000
         self.CONVERSION_FACTOR = 0.00030231
         self.N_ROPE = 2
-        self.MAX_NUMB_WORD = 65535
+        self.MAX_NUMB_WORD = 65536
         self.MIN_VOLTAGE = 2.30 # Correspond to the maximum height 116.33
         self.MAX_VOLTAGE = 7.22
         
@@ -403,7 +403,6 @@ class ManipulatorController:
             "bit_6_reset": False,
             "bit_7_hooked": False
         }
-        self.word_int_bool = 0
         self.send_counter = 0
         self.height = 0
         self.speed_limit = 0
@@ -444,23 +443,6 @@ class ManipulatorController:
         else:
             return signed + self.MAX_NUMB_WORD
 
-            
-    def reset_bit(self, byte_mask, position):
-        bitmask = ~(1 << position)
-        return byte_mask & bitmask
-
-        
-    def set_bit(self, byte_mask, position):
-        bitmask = (1 << position)
-        return byte_mask | bitmask
-
-        
-    def is_bit_set(self, bit):
-        if int(bit):
-            return True
-        else:
-            return False
-
 
     # Function tp convert the bit data received from the manipulator to the data used in the main program    
     def convert_recv_data(self, w_actual_vel, w_target_pos, w_actual_pos, w_feedback):
@@ -486,19 +468,18 @@ class ManipulatorController:
         if self.recv_counter != self.previous_counter:
             self.previous_counter = self.recv_counter # Set the previous counter before updating the counter
             with self.lock:
-                self.covert_send_data()
+                word_int_bool = self.covert_send_data()
+                height_unsigned = self.signed_to_unsigned(self.height)
                 try:
-                    if set_modbus_output_multi("out", [self.speed_limit, self.height, self.send_counter ,self.word_int_bool]):
-                        print_popup("Impossibile settare")
+                    if set_modbus_output_multi("out", [self.speed_limit, height_unsigned, self.send_counter , word_int_bool]):
+                        print_popup("Impossibile settare i registri in modbus")
                         exit()
                 except:
                     print_popup("Impossibile comunicare in modbus")
                     exit()
-    
-                if self.send_counter == 3:
-                    self.send_counter = 0
-                else:
-                    self.send_counter += 1
+        # Reset the counter to 0 if it is greater than 2, otherwise increment it by 1
+        self.send_counter = 0 if self.send_counter > 2 else self.send_counter + 1 
+
         # Always try read the register waiting for new data ( the counter have to change)
         try:
             res, var_list = get_modbus_inputs_list(iobus_list=["in_0", "in_1", "in_2", "in_3"])
@@ -518,18 +499,12 @@ class ManipulatorController:
 
         
     def covert_send_data(self):
-        byte_bool = 0
-        # Create an empty byte mast to change based on the dictionary set in the main program
-        
+        control_bitmask  = 0        
+        # Convert the boolean values in the status_send dictionary to an integer
         for bit_name, bit_index in self.control_dict.items():
             if self.status_send[bit_name]:
-                byte_bool = self.set_bit(byte_bool, bit_index)
-            else:
-                byte_bool = self.reset_bit(byte_bool, bit_index)
-
-        
-        # No need to convert the byte into an integer
-        self.word_int_bool = byte_bool
+                control_bitmask  = control_bitmask  | (1 << bit_index) # Set the bit in the byte mask if the value is True    
+        return control_bitmask 
 
     def mm_to_rpm(self, cobot_speed_target):
         target_in_meter = cobot_speed_target / self.ONE_METER_TO_MM
