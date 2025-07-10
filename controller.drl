@@ -422,7 +422,7 @@ class ManipulatorController:
             "bit_0_status_control": 0,
             "bit_1_resetted": 1,
             "bit_2_wrong_command": 2,
-            "bit_3_error_from" : 3,
+            "bit_3_error_from_man" : 3,
             "bit_4_just_resetted": 4,
             "bit_5_resting": 5
         }
@@ -469,18 +469,16 @@ class ManipulatorController:
         # Copy manipulator height to reg 128 for codesys to read
         set_output_register_int(0, w_actual_pos)
         self.target_pos = modbus_unsigned_to_signed(w_target_pos)
-        # Convert and then copy into the status dictionary
-        self.status_recv = {name : bool(w_feedback(1 << index)) for name, index in self.index_feedback.items()}
-        # Take the last 2 bits for the counter and the estimated weight and then convert them to integers
-        try:
-            self.recv_counter = int(bit_feedback[-8:-6], 2)
-        except ValueError:
-            print_popup("errore counter non valido")
-            self.reset_and_stop()
-        try:
-            self.estimated_weight = int(bit_feedback[:8], 2)
-        except ValueError:
-            print_log("no weight returned")
+        # Extract bit flags from feedback word based on index_feedback
+        self.status_recv = {
+            name : bool((w_feedback >> index) & 1) 
+            for name, index in self.index_feedback.items()
+            }
+        # Extract 2 bit counter from bit 6-7
+        self.recv_counter = (w_feedback >> 6) & 0b11 
+        # Extract 8 bit weight from bit 8-15
+        self.estimated_weight = (w_feedback >> 8) & 0XFF
+
 
             
     def modbus_comm(self):
