@@ -92,31 +92,10 @@ class Storage:
         # Move in joint space in front of the vacuum gripper
         movel(self.pre_pick_shunk)
         movel(self.pos_pick_shunk)        
-        wait(1)
         # Start force task
-        k_d = [10000.0, 3000.0, 10000.0, 1000.0, 1000.0, 1000.0] #[10000.0, 3000.0, 10000.0, 1000.0, 1000.0, 1000.0]
-        task_compliance_ctrl(k_d)
-        force_desired = -self.force
-        f_d = [0.0, 0.0, force_desired, 0.0, 0.0, 0.0]
-        f_dir = [0, 0, 1, 0, 0, 0]
-        set_desired_force(f_d, f_dir, mod = DR_FC_MOD_REL)
-         
-        # Force and compliance control after detecting external force
-        force_check = self.force
-        force_condition = check_force_condition(DR_AXIS_Z, max=force_check, ref=DR_TOOL)
-        while (force_condition):
-            force_condition = check_force_condition(DR_AXIS_Z, max=force_check, ref=DR_TOOL)
-            if force_condition == 0:
-                break
-        self.grip_quick_changer()
-        # Stop force control
-        release_force()
-        # Once gripped to the quick changer try unlocking the storage block
-        self.open_shunk_block()
+        self.force_task(open_storage_block = self.open_shunk_block)
         # Go back
         movel(self.pre_place_shunk)
-        # Stop Compliance
-        release_compliance_ctrl()
         # Return to the starting postion
         movej(self.to_place_shunk_joint)
         mwait(0)
@@ -165,13 +144,7 @@ class Storage:
         # Move in joint space in front of the vacuum gripper
         movej(self.frontal_pos_vacuum)
         movel(self.pre_grip_vacuum)
-        self.force_task()
-        self.grip_quick_changer()
-        # Stop force control
-        release_force()
-        # Once gripped to the quick changer try unlocking the storage block
-        self.open_vacuum_block()
-        # Go up
+        self.force_task(open_storage_block= self.open_vacuum_block)
         movel(self.pre_release)
         movel(self.front_pos_pre_release)
         # return to initial pos
@@ -301,13 +274,13 @@ class Storage:
         print_log("unhoocked")     
         
         
-    def force_task(self):
-        wait(1)
+    def force_task(self, switch_storage_block, force_desired = self.force, release_gripper : bool ):
+        mwait(0)
+        set_ref_coord(DR_TOOL)
         k_d = [10000.0, 3000.0, 10000.0, 1000.0, 1000.0, 1000.0] #[10000.0, 3000.0, 10000.0, 1000.0, 1000.0, 1000.0]
         task_compliance_ctrl(k_d)
-        force_desired = self.force
-        f_d = [0.0, force_desired, 0.0, 0.0, 0.0, 0.0]
-        f_dir = [0, 1, 0, 0, 0, 0]
+        f_d = [0.0, 0.0, force_desired, 0.0, 0.0, 0.0]
+        f_dir = [0, 0, 1, 0, 0, 0]
         set_desired_force(f_d, f_dir, mod = DR_FC_MOD_REL)
          
         # Force and compliance control after detecting external force
@@ -317,22 +290,26 @@ class Storage:
             force_condition = check_force_condition(DR_AXIS_Z, max=force_check, ref=DR_TOOL)
             if force_condition == 0:
                 break
-                
+        # Print the arrival position
+        print_log("arrived")    
+        print_log(str(get_current_posx()[0]))               
+        
+        if release_gripper: # Once in position grip to the quick changer try unlocking the storage block
+            self.grip_quick_changer() 
+            switch_storage_block()
+        else:
+            self.switch_storage_block() # Once in position try locking the storage block and then release the quick changer
+            self.release_quick_changer()
+        release_force()
+        release_compliance_ctrl()
+        set_ref_coord(DR_BASE)      
                 
     def pick_pantograph(self):
     
         #movel(self.pre_ascent_pantograph)
         movel(self.pre_grip_pantograph, v = 20, a = 20)
         # Start the force task to as near as possible to the slave side of the quick changer
-        self.force_task()
-        # Print the arrival position
-        print_log("arrived")    
-        print_log(str(get_current_posx()[0]))
-        self.grip_quick_changer()
-        # Once gripped to the quick changer try unlocking the storage block
-        self.open_panto_block()
-        release_force()
-        release_compliance_ctrl()
+        self.force_task(open_storage_block = self.open_panto_block())
         set_tool("weight_pantograph")
         # Return to the starting postion
         movel(self.pre_ascent_pantograph, v = 20, a = 20)    
@@ -343,24 +320,13 @@ class Storage:
         self.open_panto_block()          
         movel(self.pre_ascent_pantograph)
         movel(self.pre_release_pantograph, v = 20, a = 20)
-        k_d = [500.0, 500.0, 1000.0, 1000.0, 1000.0, 1000.0]
-        task_compliance_ctrl(k_d)
         # go a little closer before force control
         movel(posx(0,0,10,0,0,0), mod = DR_MV_MOD_REL, ref = DR_TOOL)
-        release_compliance_ctrl()
-        # Start the force task to as near as possible to the slave side of the quick changer
-        self.force_task()
-        # Print the arrival position
-        print_log("arrived")    
-        print_log(str(get_current_posx()[0]))
-        self.close_panto_block()
-        self.release_quick_changer()
-        release_force()
+        self.force_task(switch_storage_block= self.close_panto_block, force_desired = -self.force, release_gripper = False)
         # Go a little below to compensate for the bending of the support
         movel(self.pre_grip_pantograph)
         # Return to the starting postion
         movel(self.pre_ascent_pantograph)
-        release_compliance_ctrl()
         set_tool("quick_changer_weight")
    
     
@@ -494,8 +460,7 @@ class ManipulatorController:
         # Convert the read data
         with self.lock:
             self.convert_recv_data(word_actual_vel, word_target_height, word_actual_height, word_feedback)
-
-        time.sleep(self.T_WAIT)  # Adjust the sleep duration as needed
+        time.sleep(self.T_WAIT)  
 
         
     def covert_send_data(self):
@@ -506,23 +471,18 @@ class ManipulatorController:
                 control_bitmask  = control_bitmask  | (1 << bit_index) # Set the bit in the byte mask if the value is True    
         return control_bitmask 
 
+
     def mm_to_rpm(self, cobot_speed_target):
         target_in_meter = cobot_speed_target / self.ONE_METER_TO_MM
         conversion_factor = self.CONVERSION_FACTOR / self.N_ROPE # Adapt the conversion factor to the number of rope of the manipulator
         return round(target_in_meter / conversion_factor) # Returns the rotation speed rounded to the nearest integer, in mm/s, of the cobot's target speed.
         
+
     def rpm_to_mm(self, rpm_target):
         conversion_factor = self.CONVERSION_FACTOR / self.N_ROPE # Adapt the conversion factor to the number of rope of the manipulator
         target_meter = rpm_target * conversion_factor         
         return round((target_meter * self.ONE_METER_TO_MM), 4) # Return mm/s speed from rpm of the cobot target speed
         
-    def wait_movement(self):
-        while True:
-            with self.lock:
-                if self.actual_vel != 0: #and (self.target_pos == self.height):
-                        break
-                        
-                time.sleep(self.T_WAIT)
 
     def reset_param(self):
         try:
@@ -643,7 +603,7 @@ class ManipulatorController:
                 stop(DR_SSTOP)
                 print_log("Stopped due to arriving in position")
                 break
-            elif pos_linear_guide < self.self.MIN_VOLTAGE + 0.40 or pos_linear_guide > self.MAX_VOLTAGE - 0.40:
+            elif pos_linear_guide < self.MIN_VOLTAGE + 0.40 or pos_linear_guide > self.MAX_VOLTAGE - 0.40:
                 stop(DR_SSTOP)
                 print_log("Stopped due to linear sensor out of range")
                 print_log("height: {0}".format(height))
