@@ -39,10 +39,10 @@ class Storage:
         
         # Pos pantograph
         self.pre_grip_pantograph = posx(984.9, -118.57, 53.03, 91.99, 89.72, -179.56) # posx(985.14, -113.00, 54.00, 91.5, 89.77, -179.00) posx(984.29, -113.51, 51.93, 91.71, 89.60, -179.62)
-        self.pre_ascent_pantograph = trans(self.pre_grip_pantograph, [0, -100, 0, 0, 0, 0], DR_BASE) 
+        self.cage_lower_pos = trans(self.pre_grip_pantograph, [0, -100, 0, 0, 0, 0], DR_BASE) 
         self.pre_release_pantograph = trans(self.pre_grip_pantograph, [0, 0, 3, 0, 0, 0], DR_BASE)
-        self.pre_descent_pantograph = trans(self.pre_ascent_pantograph, [0, 0, 217.46, 0, 0, 0], DR_BASE) 
-        self.pre_obstruction_trestle = trans(self.pre_descent_pantograph, [0,trestle_offset,0,0,0,0], DR_BASE)
+        self.cage_upper_pos = trans(self.cage_lower_pos, [0, 0, 217.46, 0, 0, 0], DR_BASE) 
+        self.pre_cage_pos = trans(self.cage_upper_pos, [0,trestle_offset,0,0,0,0], DR_BASE)
 
         
         # Pos vacuum gripper
@@ -76,13 +76,16 @@ class Storage:
         LINEAR_GUIDE_HEIGHT =  MAX_HEIGHT - MIN_HEIGHT
         self.GUIDE_RATIO = LINEAR_GUIDE_HEIGHT / VOLT_DIFFERENCE
         
-    def get_mm_to_move(self):
+    def linear_guide_centering(self, current_tcp):
         # Calculate the middle point of the sensor
         middle = (self.MAX_VOLTAGE + self.MIN_VOLTAGE) / 2
         # Get the current reading of the analog sensor
         current_pos = round(get_analog_input(ch = 1),2)
         # Calculate the distance to do do go in the middle
-        return self.GUIDE_RATIO * (current_pos - middle)
+        distance_to_middle = self.GUIDE_RATIO * (current_pos - middle)
+        mwait(0)
+        set_tcp("quick_changer")
+        movel(posx(0,0,distance_to_middle,0,0,0), mod = DR_MV_MOD_REL)
 
         
     def grip_shunk(self):
@@ -256,8 +259,7 @@ class Storage:
         # Check if hocked if not relese the grip and the force and return tu the approch position
         if not get_modbus_input(self.gripper_hocked):
             self.release_quick_changer()
-            release_force()
-            #movel(self.pre_ascent_pantograph)        
+            release_force()      
             print_popup("Error in hocking the quick changer")
         print_log("hoocked to quick changer") 
     
@@ -268,8 +270,7 @@ class Storage:
         wait(1)
         if not get_modbus_input(self.gripper_released):
             self.grip_quick_changer()
-            release_force()
-            #movel(self.pre_ascent_pantograph)        
+            release_force()     
             print_popup("error in releasing the quick changer")
         print_log("unhoocked")     
         
@@ -306,19 +307,19 @@ class Storage:
                 
     def pick_pantograph(self):
     
-        #movel(self.pre_ascent_pantograph)
+        #movel(self.cage_lower_pos)
         movel(self.pre_grip_pantograph, v = 20, a = 20)
         # Start the force task to as near as possible to the slave side of the quick changer
         self.force_task(open_storage_block = self.open_panto_block())
         set_tool("weight_pantograph")
         # Return to the starting postion
-        movel(self.pre_ascent_pantograph, v = 20, a = 20)    
+        movel(self.cage_lower_pos, v = 20, a = 20)    
     
         
     def place_pantograph(self):
     
         self.open_panto_block()          
-        movel(self.pre_ascent_pantograph)
+        movel(self.cage_lower_pos)
         movel(self.pre_release_pantograph, v = 20, a = 20)
         # go a little closer before force control
         movel(posx(0,0,10,0,0,0), mod = DR_MV_MOD_REL, ref = DR_TOOL)
@@ -326,7 +327,7 @@ class Storage:
         # Go a little below to compensate for the bending of the support
         movel(self.pre_grip_pantograph)
         # Return to the starting postion
-        movel(self.pre_ascent_pantograph)
+        movel(self.cage_lower_pos)
         set_tool("quick_changer_weight")
    
     
