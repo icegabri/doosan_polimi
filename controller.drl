@@ -15,6 +15,8 @@ class Storage:
         trestle_offset = -150
         # Force definition
         self.force = 60
+        # Panto force place
+        self.place_force = 80
         # Digital output robot definition
         self.DO_GRIP_QUICK_CHANGER = 9
         self.DO_RELEASE_QUICK_CHANGER = 10
@@ -30,18 +32,32 @@ class Storage:
         # Moxa digital input definition
         self.gripper_hocked = "DI_moxa_6"
         self.gripper_released = "DI_moxa_7"
-        self.DI_SHUNK_STORAGE = "DI_moxa_0"
-        self.DI_VACUUM_STORAGE = "DI_moxa_1"
-        self.DI_PANTOGRAPH_STORAGE = "DI_moxa_2"
-        self.DI_PISTON_LOCK_PANTOGRAPH = "DI_moxa_5"
-        self.DI_PISTON_LOCK_VACUUM = "DI_moxa_4"
-        self.DI_PISTON_LOCK_SHUNK = "DI_moxa_3"
+        
+        
+        # Dictionaries for storage chek and control
+        self.pantograph_IO = {
+                            "gripper_presence" : "DI_moxa_2",
+                            "lock_status" : "DI_moxa_5",
+                            "lock_control" : 7
+                        }
+        
+        self.vacuum_IO = {
+                            "gripper_presence" : "DI_moxa_1",
+                            "lock_status" : "DI_moxa_4",
+                            "lock_control" : 6
+                        }
+        
+        self.shunk_IO = {
+                            "gripper_presence" : "DI_moxa_0",
+                            "lock_status" : "DI_moxa_3",
+                            "lock_control" : 5
+                        }
         
         # Pos pantograph
         self.pre_grip_pantograph = posx(984.9, -118.57, 53.03, 91.99, 89.72, -179.56) # posx(985.14, -113.00, 54.00, 91.5, 89.77, -179.00) posx(984.29, -113.51, 51.93, 91.71, 89.60, -179.62)
         self.cage_lower_pos = trans(self.pre_grip_pantograph, [0, -100, 0, 0, 0, 0], DR_BASE) 
         self.pre_release_pantograph = trans(self.pre_grip_pantograph, [0, 0, 3, 0, 0, 0], DR_BASE)
-        self.cage_upper_pos = trans(self.cage_lower_pos, [0, 0, 217.46, 0, 0, 0], DR_BASE) 
+        self.cage_upper_pos = trans(self.cage_lower_pos, [0, 0, 190, 0, 0, 0], DR_BASE) 
         self.pre_cage_pos = trans(self.cage_upper_pos, [0,trestle_offset,0,0,0,0], DR_BASE)
 
         
@@ -76,7 +92,7 @@ class Storage:
         LINEAR_GUIDE_HEIGHT =  MAX_HEIGHT - MIN_HEIGHT
         self.GUIDE_RATIO = LINEAR_GUIDE_HEIGHT / VOLT_DIFFERENCE
         
-    def linear_guide_centering(self, current_tcp):
+    def linear_guide_centering(self, current_tcp = "quick_changer"):
         # Calculate the middle point of the sensor
         middle = (self.MAX_VOLTAGE + self.MIN_VOLTAGE) / 2
         # Get the current reading of the analog sensor
@@ -86,6 +102,8 @@ class Storage:
         mwait(0)
         set_tcp("quick_changer")
         movel(posx(0,0,distance_to_middle,0,0,0), mod = DR_MV_MOD_REL)
+        mwait(0)
+        set_tcp(current_tcp)
 
         
     def grip_shunk(self):
@@ -96,7 +114,7 @@ class Storage:
         movel(self.pre_pick_shunk)
         movel(self.pos_pick_shunk)        
         # Start force task
-        self.force_task(open_storage_block = self.open_shunk_block)
+        self.force_task(gripper_io = self.shunk_IO, force_desired= self.force, force_axis= DR_AXIS_Z, release_gripper_storage = True)
         # Go back
         movel(self.pre_place_shunk)
         # Return to the starting postion
@@ -116,45 +134,20 @@ class Storage:
         movel(self.pre_force_shunk)
         wait(1)
         # Start force control z base
-        k_d = [3000.0, 3000.0, 800.0, 1000.0, 1000.0, 1000.0]
-        task_compliance_ctrl(k_d)
-        force_desired = self.force
-        f_d = [0.0, force_desired, 0.0, 0.0, 0.0, 0.0]
-        f_dir = [0, 1, 0, 0, 0, 0]
-        set_desired_force(f_d, f_dir, mod = DR_FC_MOD_REL)
-         
-        # Force and compliance control after detecting external force
-        force_check = self.force
-        force_condition = check_force_condition(DR_AXIS_Y, max=force_check, ref=DR_BASE)
-        while (force_condition):
-            force_condition = check_force_condition(DR_AXIS_Y, max=force_check, ref=DR_BASE)
-            if force_condition == 0:
-                break
-        
-        wait(2)
-        # Close shunk block
-        self.close_shunk_block()
-        # Stop force control
-        release_force()
-        self.release_quick_changer()        
+        self.force_task(gripper_io = self.shunk_IO, force_desired= self.force, force_axis= DR_AXIS_Y, release_gripper_storage = False)
         # return to initial pos
         movel(self.pre_pick_shunk)
-        # Stop Compliance
-        release_compliance_ctrl()
         
     
     def grip_vacuum_gripper(self):
         # Move in joint space in front of the vacuum gripper
         movej(self.frontal_pos_vacuum)
         movel(self.pre_grip_vacuum)
-        self.force_task(open_storage_block= self.open_vacuum_block)
+        self.force_task(gripper_io = self.vacuum_IO, force_desired= self.force, force_axis= DR_AXIS_Z, release_gripper_storage = True)
         movel(self.pre_release)
         movel(self.front_pos_pre_release)
         # return to initial pos
         movel(self.front_pos_pre_release)
-        # Stop Compliance
-        release_compliance_ctrl()
-        # Return to the starting postion
    
         
     def place_vacuum_gripper(self):
@@ -167,87 +160,25 @@ class Storage:
         movel(self.place_release)
         wait(1)
         # Start force control z base
-        k_d = [3000.0, 3000.0, 800.0, 1000.0, 1000.0, 1000.0]
-        task_compliance_ctrl(k_d)
-        force_desired = -self.force
-        f_d = [0.0, 0.0, force_desired, 0.0, 0.0, 0.0]
-        f_dir = [0, 0, 1, 0, 0, 0]
-        set_desired_force(f_d, f_dir, mod = DR_FC_MOD_REL)
-         
-        # Force and compliance control after detecting external force
-        force_check = self.force
-        force_condition = check_force_condition(DR_AXIS_Z, max=force_check, ref=DR_BASE)
-        while (force_condition):
-            force_condition = check_force_condition(DR_AXIS_Z, max=force_check, ref=DR_BASE)
-            if force_condition == 0:
-                break
-                
-        # Close vacuum block
-        self.close_vacuum_block()
-        # Stop force control
-        release_force()
-        self.release_quick_changer()        
+        self.force_task(gripper_io = self.vacuum_IO, force_desired= self.force, force_axis= DR_AXIS_Y, release_gripper_storage = False)       
         # return to initial pos
         movel(self.disapproach_vacuum)
-        # Stop Compliance
-        release_compliance_ctrl()
-        # Return to the starting postion
         
         
-    def open_shunk_block(self):
-        set_digital_output(self.DO_SHUNK_STORAGE, ON)
-        wait(1)
-        if get_modbus_input(self.DI_PISTON_LOCK_SHUNK):
-            print_popup("Error Unlocking the vacuum, I will close the program", DR_PM_MESSAGE)
-            exit()
-        else:
-            print_log("Vacuum gripper correctly released")
-    
-            
-    def close_shunk_block(self):
-        set_digital_output(self.DO_SHUNK_STORAGE, OFF)
-        wait(1)
-        if not get_modbus_input(self.DI_PISTON_LOCK_SHUNK):
-            print_popup("Error Locking the vacuum, I will close the program")
-            exit()
-        else:
-            print_log("Gripper locked cooretly into the storage")
-            
-            
-    def open_vacuum_block(self):
-        set_digital_output(self.DO_VACUUM_STORAGE, ON)
-        wait(1)
-        if get_modbus_input(self.DI_PISTON_LOCK_VACUUM):
-            print_popup("Error Unlocking the vacuum, I will close the program")
-            exit()
-        else:
-            print_log("Vacuum gripper correctly released")
-    
-            
-    def close_vacuum_block(self):
-        set_digital_output(self.DO_VACUUM_STORAGE, OFF)
-        wait(1)
-        if not get_modbus_input(self.DI_PISTON_LOCK_VACUUM):
-            print_popup("Error Locking the vacuum, I will close the program")
-            exit()
-        else:
-            print_log("Gripper locked cooretly into the storage")
-            
-            
-    def open_panto_block(self):
-        set_digital_output(self.DO_PANTOGRAPH_STORAGE, ON)
+    def open_block(self, gripper_io):
+        set_digital_output(gripper_io["lock_control"], ON)
         wait(1)
         # Check if hocked if not relese the grip and the force and return tu the approch position
-        if get_modbus_input(self.DI_PISTON_LOCK_PANTOGRAPH):
+        if get_modbus_input(gripper_io["lock_status"]):
             print_popup("Error in unlocking the storage for the pantograph")
             exit()
         
             
-    def close_panto_block(self):
-        set_digital_output(self.DO_PANTOGRAPH_STORAGE, OFF)
+    def close_block(self, gripper_io):
+        set_digital_output(gripper_io["lock_control"], OFF)
         wait(1)
         # Check if hocked if not relese the grip and the force and return tu the approch position
-        if not get_modbus_input(self.DI_PISTON_LOCK_PANTOGRAPH):
+        if not get_modbus_input(gripper_io["lock_status"]):
             print_popup("Error in locking the storage for the pantograph")
             exit()
     
@@ -275,31 +206,43 @@ class Storage:
         print_log("unhoocked")     
         
         
-    def force_task(self, switch_storage_block, force_desired = self.force, release_gripper : bool ):
+    def force_task(self, gripper_io, force_desired = None, force_axis = DR_AXIS_Z, release_gripper_storage : bool = True ):
+        if force_desired is None:
+            force_desired = self.force
         mwait(0)
         set_ref_coord(DR_TOOL)
-        k_d = [10000.0, 3000.0, 10000.0, 1000.0, 1000.0, 1000.0] #[10000.0, 3000.0, 10000.0, 1000.0, 1000.0, 1000.0]
+        k_d = [10000.0, 3000.0, 10000.0, 1000.0, 1000.0, 1000.0] 
         task_compliance_ctrl(k_d)
-        f_d = [0.0, 0.0, force_desired, 0.0, 0.0, 0.0]
-        f_dir = [0, 0, 1, 0, 0, 0]
+        f_d = [0.0, 0.0, 0, 0.0, 0.0, 0.0]
+        f_dir = [0, 0, 0, 0, 0, 0]
+        if force_axis == DR_AXIS_Z:
+            f_d[2] = force_desired
+            f_dir[2] = 1
+        elif force_axis == DR_AXIS_Y:
+            f_d[1] = force_desired
+            f_dir[1] = 1
+        elif force_axis == DR_AXIS_X:
+            f_d[0] = force_desired
+            f_dir[0] = 1
         set_desired_force(f_d, f_dir, mod = DR_FC_MOD_REL)
          
         # Force and compliance control after detecting external force
         force_check = self.force
-        force_condition = check_force_condition(DR_AXIS_Z, max=force_check, ref=DR_TOOL)
+        force_condition = check_force_condition(force_axis, max=force_check, ref=DR_TOOL)
         while (force_condition):
-            force_condition = check_force_condition(DR_AXIS_Z, max=force_check, ref=DR_TOOL)
+            force_condition = check_force_condition(force_axis, max=force_check, ref=DR_TOOL)
             if force_condition == 0:
                 break
         # Print the arrival position
-        print_log("arrived")    
-        print_log(str(get_current_posx()[0]))               
+        print_log("arrived")
+        wait(4)
+        print_log(str(get_current_posx(ref=DR_BASE)[0]))               
         
-        if release_gripper: # Once in position grip to the quick changer try unlocking the storage block
+        if release_gripper_storage: # Once in position grip to the quick changer try unlocking the storage block
             self.grip_quick_changer() 
-            switch_storage_block()
+            self.open_block(gripper_io = gripper_io)
         else:
-            self.switch_storage_block() # Once in position try locking the storage block and then release the quick changer
+            self.close_block(gripper_io = gripper_io) # Once in position try locking the storage block and then release the quick changer
             self.release_quick_changer()
         release_force()
         release_compliance_ctrl()
@@ -310,7 +253,7 @@ class Storage:
         #movel(self.cage_lower_pos)
         movel(self.pre_grip_pantograph, v = 20, a = 20)
         # Start the force task to as near as possible to the slave side of the quick changer
-        self.force_task(open_storage_block = self.open_panto_block())
+        self.force_task(gripper_io = self.pantograph_IO, force_desired= self.force, force_axis= DR_AXIS_Z, release_gripper_storage = True)
         set_tool("weight_pantograph")
         # Return to the starting postion
         movel(self.cage_lower_pos, v = 20, a = 20)    
@@ -318,12 +261,12 @@ class Storage:
         
     def place_pantograph(self):
     
-        self.open_panto_block()          
+        self.open_block(gripper_io = self.pantograph_IO)          
         movel(self.cage_lower_pos)
         movel(self.pre_release_pantograph, v = 20, a = 20)
-        # go a little closer before force control
-        movel(posx(0,0,10,0,0,0), mod = DR_MV_MOD_REL, ref = DR_TOOL)
-        self.force_task(switch_storage_block= self.close_panto_block, force_desired = -self.force, release_gripper = False)
+        # Correct the pos before force control
+        movel(posx(-5,2,0,0,0,0), mod = DR_MV_MOD_REL, ref = DR_TOOL)
+        self.force_task(gripper_io = self.pantograph_IO, force_desired= self.place_force, force_axis= DR_AXIS_Z, release_gripper_storage = False)
         # Go a little below to compensate for the bending of the support
         movel(self.pre_grip_pantograph)
         # Return to the starting postion
@@ -341,6 +284,7 @@ class ManipulatorController:
         self.T_WAIT = 0.05
         self.LONG_WAIT = 1
         self.T_WAIT_MOVE = 0.7
+        self.TIME_RESTING = 4
         self.ONE_METER_TO_MM = 1000
         self.CONVERSION_FACTOR = 0.00030231
         self.N_ROPE = 2
@@ -418,6 +362,7 @@ class ManipulatorController:
         # Copy manipulator height to reg 128 for codesys to read
         set_output_register_int(0, w_actual_pos)
         self.target_pos = modbus_unsigned_to_signed(w_target_pos)
+        #print_log(bin(w_feedback))
         # Extract bit flags from feedback word based on index_feedback
         self.status_recv = {
             name : bool((w_feedback >> index) & 1) 
@@ -506,6 +451,9 @@ class ManipulatorController:
             time.sleep(self.T_WAIT)
     
     def stop_lifter_and_exit(self):
+        # Stop the robot and the lifter
+        stop(DR_SSTOP)
+        print_log("Stopping the robot")
         print_log("I will stop the thread") 
         try:
             thread_stop(self.modbus_thread)
@@ -573,8 +521,8 @@ class ManipulatorController:
             with self.lock:
                 status_vel = self.actual_vel
             time.sleep(self.T_WAIT)
-        if (self.target_pos == self.height): # Check that the lifter target pos correspond to the one setted
-            print_log("Vel = {0} and t_pos = {1}".format(self.actual_vel, self.height))
+        if (self.target_pos != target): # Check that the lifter target pos correspond to the one setted
+            print_log("Target pos received = {0} and target sent = {1}".format(self.target_pos, target))
             print_log("Reset and close the program")
             self.stop_lifter_and_exit()
         start_time = time.time() # Startup time to ignore the first 2 seconds of rest and speed=0 due to the lifter rope being tensioned.
@@ -589,12 +537,12 @@ class ManipulatorController:
                 target = target
                 print_log("actual_pos: {0} target: {1}".format(pos_manipulator, target))
             pos_linear_guide = round(get_analog_input(ch = 1),2)    
-            if resting and (time.time() - start_time > 2): # If the manipulator is resting for more than 2 seconds
-                stop(DR_SSTOP)
-                print_log("Stopped due to resting")
-                print_log("height: {0}".format(height))
-                break
-            elif (vel_status == 0) and (time.time() - start_time > 2): # If the manipulator is not moving for more than 2 seconds
+            #if resting and (time.time() - start_time > self.TIME_RESTING): # If the manipulator is resting for more than the defined time stop the robot
+                #stop(DR_SSTOP)
+                #print_log("Stopped due to resting")
+                #print_log("height: {0}".format(height))
+                #break
+            if (vel_status == 0) and (time.time() - start_time > self.TIME_RESTING): # If the manipulator is not moving for more than the defined time stop the robot
                 stop(DR_SSTOP)
                 print_log("Stopped due to speed == 0")
                 print_log("height: {0}".format(height))
@@ -611,11 +559,9 @@ class ManipulatorController:
                 self.reset_param() # Reset the manipulator parameters to stop it
                 break
             elif wrong_command:
-                stop(DR_SSTOP)
                 print_log("Stopped due to command error")
                 self.stop_lifter_and_exit()
             elif error_from_manipulator:
-                stop(DR_SSTOP)
                 print_log("Stopped due to manipulator error")
                 self.stop_lifter_and_exit()
                 

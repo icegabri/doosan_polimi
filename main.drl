@@ -15,10 +15,10 @@ def pantografo():
     joint_pre_panto_grip = trans(storage.pre_grip_pantograph, [0, 0, -50, 0, 0, 0], DR_TOOL)
 
     # Set joint and task speed
-    set_accx(30,10)
-    set_velx(30,10)
-    set_accj(10)
-    set_velj(10)
+    set_accx(50,10)
+    set_velx(50,10)
+    set_accj(5)
+    set_velj(5)
 
     # Set weight and tcp
     set_tcp("quick_changer")
@@ -26,28 +26,28 @@ def pantografo():
 
     move_home(DR_HOME_TARGET_USER)
     
-    # Move in joint in front of the quick changer of the pantograph
+    # move in joint in front of the quick changer of the pantograph
     movejx(joint_pre_panto_grip, sol=7)
     storage.pick_pantograph()
 
-    # Reset dell'altezza del manipolatore all'altezza attuale
+    # reset dell'altezza del manipolatore all'altezza attuale
     control.reset_height()
-    # Set target vel for cobot and manipulator when hooked
-    target_vel = 50
-    # Offset to move the lifter
+    # set target vel for cobot and manipulator when hooked
+    target_vel = 30
+    # offset to move the lifter
     offset_cobot =  storage.cage_upper_pos[2] - storage.cage_lower_pos[2]
     offset_balancer = control.current_man_offset(offset_cobot)
-    # Lifter and cobot sinch movement  
+    # lifter and cobot sinch movement  
     control.move_sync(height = offset_balancer, vel_cobot = target_vel, pos_cobot = storage.cage_upper_pos, cobot_delayed_start = True)
 
-    # Move outside where we can rotate the gripper
+    # move outside where we can rotate the gripper
     movel(storage.pre_cage_pos, vel=30, acc=10)
     rotated_pos = trans(storage.pre_cage_pos, [0,0,0,-90,0,0], DR_BASE)
-    movel(rotated_pos, vel=[10,5], acc=[10,5])
+    movel(rotated_pos, vel=[15,7], acc=[15,7])
 
-    # Move in the middle of the linear guide
+    #move in the middle of the linear guide
     storage.linear_guide_centering()
-    movel(storage.pre_cage_pos, vel = 30, acc = 10)
+    movel(storage.pre_cage_pos, vel=[15,7], acc=[15,7])
 
     # Set the offset negative for the descent
     offset_cobot =  -offset_cobot
@@ -64,7 +64,7 @@ def pantografo():
     move_home(DR_HOME_TARGET_USER)
 
     # Stop the thread and exit the program
-    control.reset_and_stop()
+    control.stop_lifter_and_exit()
     
     
     
