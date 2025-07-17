@@ -235,7 +235,7 @@ class Storage:
                 break
         # Print the arrival position
         print_log("arrived")
-        wait(4)
+        wait(2)
         print_log(str(get_current_posx(ref=DR_BASE)[0]))               
         
         if release_gripper_storage: # Once in position grip to the quick changer try unlocking the storage block
@@ -263,9 +263,8 @@ class Storage:
     
         self.open_block(gripper_io = self.pantograph_IO)          
         movel(self.cage_lower_pos)
-        movel(self.pre_release_pantograph, v = 20, a = 20)
         # Correct the pos before force control
-        movel(posx(-5,2,0,0,0,0), mod = DR_MV_MOD_REL, ref = DR_TOOL)
+        movel(trans(self.pre_release_pantograph, [-3,2,0,0,0,0], DR_TOOL), v = 20, a = 20)
         self.force_task(gripper_io = self.pantograph_IO, force_desired= self.place_force, force_axis= DR_AXIS_Z, release_gripper_storage = False)
         # Go a little below to compensate for the bending of the support
         movel(self.pre_grip_pantograph)
@@ -395,7 +394,7 @@ class ManipulatorController:
         # Always try read the register waiting for new data ( the counter have to change)
         try:
             res, var_list = get_modbus_inputs_list(iobus_list=["in_0", "in_1", "in_2", "in_3"])
-            if res < 4:
+            if res < 4: 
                 print_popup("Ho ricevuto solo {}".format(res))
                 exit()
         except:
@@ -536,6 +535,7 @@ class ManipulatorController:
                 pos_manipulator = self.actual_pos
                 target = target
                 print_log("actual_pos: {0} target: {1}".format(pos_manipulator, target))
+                print_log("Estimated weight: {0}".format(self.estimated_weight))
             pos_linear_guide = round(get_analog_input(ch = 1),2)    
             #if resting and (time.time() - start_time > self.TIME_RESTING): # If the manipulator is resting for more than the defined time stop the robot
                 #stop(DR_SSTOP)
