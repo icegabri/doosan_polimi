@@ -115,6 +115,8 @@ class Storage:
         movel(self.pos_pick_shunk)        
         # Start force task
         self.force_task(gripper_io = self.shunk_IO, force_desired= self.force, force_axis= DR_AXIS_Z, release_gripper_storage = True)
+        # Set weight
+        set_tool("2f_gripper_weight")
         # Go back
         movel(self.pre_place_shunk)
         # Return to the starting postion
@@ -124,7 +126,6 @@ class Storage:
         
         
     def place_shunk_gripper(self):
-        self.open_shunk_block()
         movej(self.to_place_shunk_joint)
         mwait(0)
         set_tcp("quick_changer")
@@ -135,6 +136,8 @@ class Storage:
         wait(1)
         # Start force control z base
         self.force_task(gripper_io = self.shunk_IO, force_desired= self.force, force_axis= DR_AXIS_Y, release_gripper_storage = False)
+        # Reset the weight
+        set_tool("quick_changer_weight")
         # return to initial pos
         movel(self.pre_pick_shunk)
         
@@ -160,7 +163,7 @@ class Storage:
         movel(self.place_release)
         wait(1)
         # Start force control z base
-        self.force_task(gripper_io = self.vacuum_IO, force_desired= self.force, force_axis= DR_AXIS_Y, release_gripper_storage = False)       
+        self.force_task(gripper_io = self.vacuum_IO, force_desired= self.force, force_axis= DR_AXIS_Y, release_gripper_storage = False) 
         # return to initial pos
         movel(self.disapproach_vacuum)
         

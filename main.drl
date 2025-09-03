@@ -1,7 +1,7 @@
 # Main script: controllo del prelievo e rilascio del pantografo
 # Requisiti: controller.drl con classi Storage e ManipulatorController
 
-# Inport sub program
+# Inport sub programs
 controller = sub_program_run("controller")
 
     
@@ -66,7 +66,30 @@ def pantografo():
     # Stop the thread and exit the program
     control.stop_lifter_and_exit()
     
-    
-    
-pantografo()
+def two_finger():
+   # Initialized Storage class to pick and release the grippers
+    storage = controller.Storage()
+    # Set joint and task speed
+    set_accx(20,10)
+    set_velx(20,10)
+    set_accj(5)
+    set_velj(5)
 
+    # Set weight and tcp
+    set_tcp("quick_changer")
+    set_tool("quick_changer_weight")
+
+    #move_home(DR_HOME_TARGET_USER)
+    
+    #storage.grip_shunk()
+    
+    storage.place_shunk_gripper()
+    
+
+def main():
+    #tp_popup("hi")
+    #wait(8)
+    two_finger()
+    movel(
+
+main()
