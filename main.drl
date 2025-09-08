@@ -90,6 +90,5 @@ def main():
     #tp_popup("hi")
     #wait(8)
     two_finger()
-    movel(
 
 main()
