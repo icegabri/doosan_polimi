@@ -3,6 +3,7 @@
 
 # Inport sub programs
 controller = sub_program_run("controller")
+schunk = sub_program_run("schunk")
 
     
 def pantografo():
@@ -79,16 +80,21 @@ def two_finger():
     set_tcp("quick_changer")
     set_tool("quick_changer_weight")
 
-    #move_home(DR_HOME_TARGET_USER)
+    move_home(DR_HOME_TARGET_USER)
     
-    #storage.grip_shunk()
+    storage.grip_shunk()
+    
+    schunk.main()
     
     storage.place_shunk_gripper()
     
+    move_home(DR_HOME_TARGET_USER)
+    
 
 def main():
+    pantografo()
     #tp_popup("hi")
     #wait(8)
-    two_finger()
+    #two_finger()
 
 main()

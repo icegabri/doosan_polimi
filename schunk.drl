@@ -1,0 +1,463 @@
+import os
+import struct
+import time
+import sys
+from DRCF import *
+
+if '/opt/' not in sys.path:
+    # append external path
+    sys.path.append('/opt/')
+    
+from pymodbus.client.sync import ModbusSerialClient
+
+def screen_print(word_to_print):
+    print(word_to_print)
+    tp_log(word_to_print)
+    #tp_popup(str(word_to_print)) 
+
+def send_profinet_error(err_numb : int):
+    # to do the 
+    print
+    
+class SchunkEGUGripper:
+    CONTROL_REGISTER_START = 71
+    INPUT_REGISTER_START = 63
+    UNIT_ID = 12
+    STATUS_REG_COUNT = CONTROL_REGISTER_COUNT = 8
+
+    EXCLUSIVE_BITS = {11, 12, 13, 14, 15, 16, 17}  # solo uno può essere attivo
+
+    STATUS_BITS = {
+        0:  "ready_for_operation",
+        1:  "control_authority_fieldbus",
+        2:  "ready_for_shutdown",
+        3:  "not_feasible",
+        4:  "command_successfully_processed",
+        5:  "command_received_toggle",
+        6:  "warning",
+        7:  "error",
+        8:  "released_for_manual_movement",
+        9:  "software_limit_reached",
+        10: "reserved_10",
+        11: "no_workpiece_detected",
+        12: "workpiece_gripped",
+        13: "position_reached",
+        14: "workpiece_pre_grip_started",
+        15: "reserved_15",
+        16: "workpiece_lost",
+        17: "wrong_workpiece_gripped",
+        30: "brake_test_running",
+        31: "GPE_activated"
+    }
+
+
+    CONTROL_BITS_DICT = {
+        "fast_stop" : 0,
+        "stop" : 1,
+        "acknowledge" : 2,
+        "prepare_for_shutdown" : 3,
+        "softreset" : 4,
+        "release_for_manual_movement" : 5,
+        "repeat_command_toggle" : 6,
+        "grip_direction" : 7,
+        "jog_mode_negative" : 8,
+        "jog_mode_positive" : 9,
+        "release_workpiece" : 11,
+        "grip_workpiece" : 12,
+        "move_to_absolute_position" : 13,
+        "move_to_relative_position" : 14,
+        "grip_workpiece_at_expected_position" : 16,
+        "brake_test" : 30,
+        "activate_grip_force_maintenance" : 31
+    }
+
+    DIAG_CODES = {
+        0x14: "ERR_SOFT_LOW",
+        0x15: "ERR_SOFT_HIGH",
+        0x18: "ERR_MOVE_BLOCKED",
+        0x19: "ERR_MOV_ABORT_TO",
+        0x12: "ERR_FAST_STOP",
+        0x28: "WRN_NOT_FEASIBLE",
+        0xD9: "ERR_COMM_LOST",
+        0x1F: "ERR_BT_FAILED",
+        0x94: "WARNING_CMD_NOT_FEASIBLE"
+    }
+
+    def __init__(self, port, baudrate=115200, timeout=1):
+        self.client = ModbusSerialClient(
+            method='rtu',
+            port=port,
+            baudrate=baudrate,
+            timeout=timeout,
+            parity='E',
+            stopbits=1,
+            bytesize=8
+        )
+        connected = self.client.connect()
+        if not connected:
+            raise ValueError("Impossibile connettersi al dispositivo Modbus sulla porta {}".format(port))
+        self._toggle = False  # bit 5
+
+    def __del__(self):
+        self.close()
+
+    # === ENDIANNESS ===
+
+    def _swap_bytes_in_word(self, word: int) -> int:
+        return ((word & 0x00FF) << 8) | ((word & 0xFF00) >> 8)
+
+    def _encode_double_word(self, value: int) :
+        low_word = value & 0xFFFF
+        high_word = (value >> 16) & 0xFFFF
+        return [
+            self._swap_bytes_in_word(low_word),
+            self._swap_bytes_in_word(high_word)
+        ]
+    
+
+    def _decode_double_word(self, regs) -> int:
+        low_word = self._swap_bytes_in_word(regs[0])
+        high_word = self._swap_bytes_in_word(regs[1])
+        # screen_print(f"the high is {high_word} and the low is {low_word}")
+        return (high_word << 16) | low_word
+
+    def _encode_float32(self, value: float) :
+        # IEEE 754 float32 → 4 bytes → due word da 16 bit
+        raw = struct.unpack(">HH", struct.pack(">f", value))  # big endian float
+        return [self._swap_bytes_in_word(w) for w in raw]
+
+    # === CONTROL WORD ===
+
+    def build_control_word(self, bits) -> int:
+        active_exclusive = [bit for bit in self.EXCLUSIVE_BITS if bits.get(bit)]
+        if len(active_exclusive) > 1:
+            raise ValueError("Comandi mutualmente esclusivi attivi: {}".format(active_exclusive))
+
+        value = 0
+        for bit, flag in bits.items():
+            if not (0 <= bit <= 31):
+                raise ValueError("Bit fuori range: {bit}".format(active_exclusive))
+            if flag:
+                value |= (1 << bit)
+        return value
+
+    # === COMANDO PRINCIPALE CON 0→1 ===
+
+    def send_command(self, control_bits, pos: int, speed: int, force: int, delay_ms=100):
+        """
+        Invia un comando con gestione fronte 0→1 sui bit di comando
+        """
+        base_bits = control_bits.copy()
+
+        # 🔒 Se c'è un comando attivo (11–17), disattiva bit 2 automaticamente
+        if any(base_bits.get(bit, False) for bit in self.EXCLUSIVE_BITS):
+            base_bits[2] = False  # disable acknowledge se presente
+
+
+        # Step 1: reset bit funzionali (11–17)
+        reset_bits = base_bits.copy()
+        for bit in self.EXCLUSIVE_BITS:
+            reset_bits[bit] = False
+
+        self._write_frame(reset_bits, pos, speed, force)
+        time.sleep(delay_ms / 1000)
+
+        # Step 2: invio comando vero e proprio (bit funzionali a 1)
+        self._write_frame(base_bits, pos, speed, force)
+
+    def _write_frame(self, control_bits, pos: int, speed: int, force: int):
+        raw_ctrl = self.build_control_word(control_bits)
+        regs = self._encode_double_word(raw_ctrl)
+
+        # screen_print("\n[DEBUG] CONTROL WORD BIN:", bin(raw_ctrl))
+        # screen_print("[DEBUG] CONTROL WORD HEX:", hex(raw_ctrl))
+        # screen_print("[DEBUG] ENCODED REGISTERS:", [hex(r) for r in regs])
+        # # Reg per pos, speed, force anche se non cambiano
+        # screen_print("[DEBUG] POS, SPEED, FORCE encoded regs:",
+        #       [hex(r) for r in self._encode_double_word(pos)] +
+        #       [hex(r) for r in self._encode_double_word(speed)] +
+        #       [hex(r) for r in self._encode_double_word(force)])
+
+        # invio reale
+        self.client.write_registers(self.CONTROL_REGISTER_START, regs + 
+                                    self._encode_double_word(pos) +
+                                    self._encode_double_word(speed) +
+                                    self._encode_double_word(force),
+                                    unit=self.UNIT_ID)
+        
+
+    def _write_parameter(self, register: int, value, type_: str = "int"):
+        if type_ == "int":
+            regs = self._encode_double_word(int(value))
+        elif type_ == "float":
+            regs = self._encode_float32(float(value))
+        elif type_ == "uint16":
+            regs = [int(value)]
+        else:
+            raise ValueError("Tipo non supportato")
+        self.client.write_registers(register, regs, unit=self.UNIT_ID)
+
+        
+    # === LETTURA FRAME INPUT ===
+
+    def read_input_frame(self) -> dict:
+        result = self.client.read_holding_registers(self.INPUT_REGISTER_START, count=self.STATUS_REG_COUNT, unit = self.UNIT_ID,)
+        # screen_print(result.registers)
+        if result.isError():
+            raise Exception("Errore nella lettura del frame Modbus in ingresso")
+
+        regs = result.registers
+
+        status_dw = self._decode_double_word(regs[0:2])
+        actual_pos = self._decode_double_word(regs[2:4])
+        # Write actual gripper pos to the first profinet register
+        try:
+            set_output_register_int(0,actual_pos)
+        except:
+            tp_log("Error writing profinet reg")
+        diagnostic_dw = self._decode_double_word(regs[6:8])
+
+        status = {name: bool(status_dw & (1 << bit)) for bit, name in self.STATUS_BITS.items()}
+        main_code = (diagnostic_dw >> 16) & 0xFF
+        add_code = (diagnostic_dw >> 24) & 0xFF
+        diag_description = self.DIAG_CODES.get(main_code, "UNKNOWN (0x{:02X})".format(main_code))
+
+        return {
+            "status_bits": status,
+            "actual_position_um": actual_pos,
+            "diagnostic": {
+                "main_code": main_code,
+                "description": diag_description,
+                "additional_code": add_code
+            }
+        }
+
+    def reset(self, delay_ms=100):
+        """
+        Reset: porta a 0 e poi a 1 i bit di servizio (bit 0, 2), attiva GPE (bit 31)
+        """
+        base_bits = {0: False, 2: False, 31: False}
+        self.send_command(control_bits=base_bits, pos=0, speed=0, force=0)
+        time.sleep(delay_ms / 1000)
+
+        base_bits[0] = True
+        base_bits[2] = True
+        self.send_command(control_bits=base_bits, pos=0, speed=0, force=0)
+
+
+    def move_to(self, pos_mm: float, speed_mm_s: float, force_percent: int, wait_condition=True, timeout=10.0):
+        """Movimento assoluto con gestione toggle + 0→1"""
+        self.send_command(
+            control_bits={
+                self.CONTROL_BITS_DICT["fast_stop"]: True,
+                self.CONTROL_BITS_DICT["acknowledge"]: False,
+                self.CONTROL_BITS_DICT["move_to_absolute_position"]: True,
+                self.CONTROL_BITS_DICT["activate_grip_force_maintenance"]: True
+            },
+            pos=int(pos_mm * 1000),
+            speed=int(speed_mm_s * 1000),
+            force=force_percent
+        )
+
+        if wait_condition:
+            self._wait_for_feedback(
+                expected={"position_reached": True},
+                error_bits={
+                    "software_limit_reached": "! Oltre i limiti della pinza",
+                    "not_feasible": "! comando non eseguibile "
+                },
+                timeout=timeout
+            )
+        
+
+    def grip(self, pos_mm: float, speed_mm_s: float, force_percent: int, delta_mm: float = None, margin_mm: float = None, grip_inside: bool = False, grip_timeout_ms: int = None, wait_condition: bool = True, timeout: float = 5.0, grip_at_expected_pos = False ):
+        # 1. Scrittura parametri avanzati
+        if grip_timeout_ms is not None:
+            self._write_parameter(register=895, value=grip_timeout_ms, type_="uint16")
+        if delta_mm is not None:
+            self._write_parameter(register=1447, value=delta_mm, type_="float")
+        if margin_mm is not None:
+            self._write_parameter(register=1407, value=margin_mm, type_="float")
+
+        # 2. Invio comando di grip (bit 16)
+        self.send_command(
+            control_bits={self.CONTROL_BITS_DICT["fast_stop"]: True,
+                          self.CONTROL_BITS_DICT["acknowledge"]: False, 
+                          self.CONTROL_BITS_DICT["grip_direction"]: grip_inside, 
+                          self.CONTROL_BITS_DICT["grip_workpiece_at_expected_position"]: grip_at_expected_pos,
+                          self.CONTROL_BITS_DICT["grip_workpiece"]: not grip_at_expected_pos,
+                          self.CONTROL_BITS_DICT["activate_grip_force_maintenance"]: True},
+            pos=int(pos_mm * 1000),
+            speed=int(speed_mm_s * 1000),
+            force=force_percent
+        )
+
+        # 3. Feedback (facoltativo)
+        if wait_condition:
+            screen_print(self._wait_for_feedback(
+                expected={"workpiece_gripped": True},
+                error_bits={
+                    "no_workpiece_detected": "! Nessun oggetto rilevato",
+                    "wrong_workpiece_gripped": "! Oggetto afferrato non conforme",
+                    "not_feasible": "! comando non eseguibile "
+                },
+                timeout=timeout
+            ))
+
+
+
+
+    def release(self, pos_mm: float, speed_mm_s: float, force_percent: int, wp_release_delta_mm : float = 2, wait_condition: bool = True, timeout : int = 7):
+        
+        if wp_release_delta_mm is not None:
+            self._write_parameter(register=1343, value=wp_release_delta_mm, type_="float")
+
+        self.send_command(
+            control_bits={
+                self.CONTROL_BITS_DICT["fast_stop"]: True,
+                self.CONTROL_BITS_DICT["acknowledge"]: False,
+                self.CONTROL_BITS_DICT["release_workpiece"]: True,
+                self.CONTROL_BITS_DICT["activate_grip_force_maintenance"]: True
+            },
+            pos=int(pos_mm * 1000),
+            speed=int(speed_mm_s * 1000),
+            force=force_percent
+        )
+        if wait_condition:
+            self._wait_for_feedback(
+                expected={"command_successfully_processed": True},
+                error_bits={
+                    "software_limit_reached": "! Oltre i limiti della pinza",
+                    "not_feasible": "! comando non eseguibile "
+                },
+                timeout=timeout
+            )
+
+    def ensure_ready(self, timeout_sec=3, check_interval=0.2):
+        """
+        Fa reset della pinza e attende che sia pronta all'uso.
+        Se non diventa ready entro il timeout, solleva eccezione.
+        """
+        self.reset()
+        start = time.time()
+        while time.time() - start < timeout_sec:
+            frame = self.read_input_frame()
+            status = frame["status_bits"]
+            if status["ready_for_operation"] and not status["error"] and not status["not_feasible"]:
+                return  # pronta!
+            time.sleep(check_interval)
+        raise ValueError("La pinza non è pronta all'uso dopo il timeout.")
+
+    def close(self):
+        self.client.close()
+
+    def _wait_for_feedback(self,expected: dict, error_bits: dict = None, timeout=3.0, poll_interval=0.1):
+        """
+        Attende che i bit desiderati coincidano con quelli attesi.
+        `expected`: condizioni di successo (es. {"workpiece_gripped": True})
+        `error_bits`: bit di stato che indicano fallimento, con messaggi custom
+        """
+        start = time.time()
+        while time.time() - start < timeout:
+            frame = self.read_input_frame()
+            status = frame["status_bits"]
+            diag = frame["diagnostic"]
+
+            if status["workpiece_pre_grip_started"]:
+                # if pre_grip has started, reset the time and retry the frame reading
+                start = time.time()
+                continue
+
+            # Bit di errore gestiti dinamicamente
+            if error_bits:
+                for bit_name, message in error_bits.items():
+                    if status.get(bit_name, False):
+                        return bit_name
+                        #raise RuntimeError("{}".format(message))
+
+            # Blocco generale di errore
+            if status.get("error", False):
+                code_hex = "0x{:02X}".format(diag["main_code"])
+                raise RuntimeError("X Errore hardware: {} ({})".format(diag["description"], code_hex))
+
+            # Condizione di successo
+            if all(status.get(k) == v for k, v in expected.items()):
+                return
+
+            time.sleep(poll_interval)
+
+        raise ValueError("Timeout: la condizione attesa non si e verificata")
+
+
+
+
+def main():
+    gripper = SchunkEGUGripper(port='/dev/ttyUSB0'
+    )
+
+    try:
+        screen_print(" Inizializzazione pinza...")
+        gripper.ensure_ready()
+        screen_print("Pinza pronta!")
+
+        gripper.move_to(
+            pos_mm=50.0,
+            speed_mm_s=100.0,
+            force_percent=100,
+            wait_condition = True
+        )
+
+        time.sleep(1)
+
+        frame = gripper.read_input_frame()
+        screen_print("\n Posizione: {:.2f} mm".format(frame["actual_position_um"] / 1000))
+
+        #gripper.grip(
+            #pos_mm=7.0,
+            #speed_mm_s=40.0,
+            #force_percent=101,
+            #delta_mm=2,
+            #margin_mm=1,
+            #grip_timeout_ms=1500,
+            #grip_inside = False,
+            #wait_condition=True,
+            #timeout=3.0,
+            #grip_at_expected_pos = True
+        #)
+
+
+        time.sleep(0.2)
+
+        frame = gripper.read_input_frame()
+
+        #gripper.release(
+            #pos_mm=20.0,
+            #speed_mm_s=20.0,
+            #force_percent=100,
+            #wp_release_delta_mm = 20,
+            #timeout=5
+        #)
+        
+        gripper.move_to(
+            pos_mm=5.0,
+            speed_mm_s=100.0,
+            force_percent=100,
+            wait_condition = True
+        )
+
+        
+#
+        time.sleep(0.2)
+
+        screen_print("Stato:")
+        for k, v in frame["status_bits"].items():
+            screen_print("{:<35}: {}".format(k, 'V' if v else 'X'))
+
+    except ValueError as e:
+        screen_print("- Errore: {}".format(e))
+
+    finally:
+        gripper.close()
+
+
+#main()
